@@ -1,0 +1,8 @@
+
+{
+  "name": "FarmaRoutes BCN - Logistics Recruitment",
+  "description": "Plataforma líder para la captación y gestión de transportistas autónomos en Barcelona, especializada en rutas farmacéuticas y evolución profesional.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
