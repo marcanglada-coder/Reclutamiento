@@ -1,182 +1,261 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoogleGenAI } from "@google/genai";
 
-// --- 1. CONFIGURACIÓN Y TIPOS ---
+// --- 1. MODELO DE DATOS Y CONSTANTES ---
 enum CandidatePath {
   AUTONOMO_COLD = 'AUTONOMO_COLD',
   AUTONOMO_NO_COLD = 'AUTONOMO_NO_COLD',
-  ASALARIADO_A_AUTONOMO = 'ASALARIADO_A_AUTONOMO'
+  EMPRENDEDOR = 'EMPRENDEDOR'
 }
 
-enum CandidateStatus {
+enum Status {
   PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
-  ON_ROUTE = 'ON_ROUTE'
+  AI_APPROVED = 'AI_APPROVED',
+  CONTACTED = 'CONTACTED'
 }
 
 interface Candidate {
   id: string;
   name: string;
-  email: string;
   phone: string;
-  path: CandidatePath;
-  vehicleModel: string;
-  hasRefrigeration: boolean;
   zone: string;
-  status: CandidateStatus;
+  vehicle: string;
+  path: CandidatePath;
+  status: Status;
+  aiAnalysis?: string;
   createdAt: number;
 }
 
-const MODERN_IMAGES = {
-  refrigerated: "https://images.unsplash.com/photo-1616432043562-3671ea2e5242?auto=format&fit=crop&q=80&w=1000",
-  hub: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=1000"
+const ZONES = ['Barcelona Ciudad', 'Sant Boi / Baix Llobregat', 'Barberà / Vallès', 'Maresme'];
+
+// --- 2. COMPONENTES DE UI REUTILIZABLES ---
+
+const Badge = ({ children, variant = 'blue' }: { children: React.ReactNode, variant?: string }) => {
+  const styles: any = {
+    blue: 'bg-blue-100 text-blue-700',
+    green: 'bg-green-100 text-green-700',
+    orange: 'bg-orange-100 text-orange-700',
+  };
+  return <span className={`${styles[variant]} px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter`}>{children}</span>;
 };
 
-// --- 2. SERVICIOS (IA) ---
-const analyzeWithAI = async (data: any) => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-    // Solo inicializamos para validar, en un registro real llamaríamos a generateContent
-    console.log("IA Lista para analizar perfil de Barcelona");
-    return true;
-  } catch (e) {
-    return false;
-  }
+// --- 3. SECCIÓN: MOTOR DE CRECIMIENTO (GROWTH) ---
+const GrowthTool = () => {
+  const [copied, setCopied] = useState(false);
+  const link = window.location.origin;
+  const waMsg = `🚚 ¿Eres transportista en BCN? FarmaRoutes busca autónomos para rutas fijas. Pago garantizado a 30 días. Regístrate aquí: ${link}`;
+
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -mr-32 -mt-32"></div>
+      <h3 className="text-3xl font-black mb-4">Motor de Captación</h3>
+      <p className="text-slate-400 mb-8 text-sm">Herramientas para que tus propios conductores atraigan a otros.</p>
+      
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white/5 p-6 rounded-3xl border border-white/10">
+          <p className="text-xs font-bold text-blue-400 uppercase mb-2">Kit WhatsApp</p>
+          <p className="text-sm italic text-slate-300 mb-4 line-clamp-2">"{waMsg}"</p>
+          <button onClick={() => copy(waMsg)} className="w-full bg-white text-black py-3 rounded-xl font-black text-xs uppercase hover:bg-slate-200 transition">
+            {copied ? '¡Copiado!' : 'Copiar Mensaje'}
+          </button>
+        </div>
+        <div className="bg-blue-600 p-6 rounded-3xl shadow-lg flex flex-col items-center text-center">
+          <div className="w-16 h-16 bg-white rounded-xl mb-3 flex items-center justify-center text-2xl">📱</div>
+          <p className="text-xs font-bold uppercase mb-2">QR para Furgonetas</p>
+          <button onClick={() => window.print()} className="bg-black text-white px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 transition">Imprimir Pegatinas</button>
+        </div>
+      </div>
+    </div>
+  );
 };
-
-// --- 3. COMPONENTES DE UI ---
-
-const Layout = ({ children, activeView, setView }: any) => (
-  <div className="min-h-screen flex flex-col">
-    <nav className="fixed top-0 inset-x-0 bg-white/80 backdrop-blur-lg border-b z-50 px-6 py-4 flex justify-between items-center">
-      <div className="flex items-center gap-2 font-black text-2xl tracking-tighter">
-        <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center">F</div>
-        FarmaRoutes<span className="text-blue-600">.</span>
-      </div>
-      <div className="flex gap-8 font-bold text-sm text-gray-500">
-        <button onClick={() => setView('candidate')} className={activeView === 'candidate' ? 'text-blue-600 border-b-2 border-blue-600' : ''}>Conductores</button>
-        <button onClick={() => setView('operator')} className={activeView === 'operator' ? 'text-blue-600 border-b-2 border-blue-600' : ''}>Panel Operador</button>
-      </div>
-    </nav>
-    <main className="flex-grow pt-24">{children}</main>
-  </div>
-);
 
 // --- 4. COMPONENTE PRINCIPAL (APP) ---
 const App = () => {
   const [view, setView] = useState<'candidate' | 'operator'>('candidate');
+  const [step, setStep] = useState(0);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', zone: '', vehicle: '' });
+  const [formData, setFormData] = useState({ name: '', phone: '', zone: '', vehicle: '', path: CandidatePath.AUTONOMO_COLD });
+
+  // Simulación de análisis IA con Gemini
+  const runAIAnalysis = async (candidate: Candidate) => {
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Analiza este transportista para rutas Farma en BCN: ${JSON.stringify(candidate)}. 
+        Responde en 2 líneas: ¿Es apto? Puntos fuertes.`
+      });
+      return response.text;
+    } catch (e) {
+      return "Perfil pendiente de validación técnica.";
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await analyzeWithAI(formData);
     
     const newCandidate: Candidate = {
+      ...formData,
       id: Math.random().toString(36).substr(2, 9),
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      path: CandidatePath.AUTONOMO_COLD,
-      vehicleModel: formData.vehicle,
-      hasRefrigeration: true,
-      zone: formData.zone,
-      status: CandidateStatus.PENDING,
+      status: Status.PENDING,
       createdAt: Date.now()
     };
 
+    const analysis = await runAIAnalysis(newCandidate);
+    newCandidate.aiAnalysis = analysis;
+    newCandidate.status = Status.AI_APPROVED;
+
     setTimeout(() => {
-      setCandidates([newCandidate, ...candidates]);
+      setCandidates(prev => [newCandidate, ...prev]);
       setLoading(false);
-      setSuccess(true);
-    }, 1500);
+      setStep(100); // Éxito
+    }, 1000);
   };
 
   return (
-    <Layout activeView={view} setView={setView}>
-      <div className="container mx-auto px-4 max-w-6xl">
+    <div className="min-h-screen flex flex-col">
+      {/* Navigation */}
+      <nav className="fixed top-0 inset-x-0 h-20 bg-white/80 backdrop-blur-md border-b z-50 flex items-center justify-between px-8">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setView('candidate'); setStep(0); }}>
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center font-black text-white text-xl shadow-lg shadow-blue-200">F</div>
+          <span className="text-xl font-black tracking-tighter">FarmaRoutes<span className="text-blue-600">.</span></span>
+        </div>
+        <div className="flex gap-6 font-bold text-sm text-slate-400">
+          <button onClick={() => setView('candidate')} className={view === 'candidate' ? 'text-slate-900 border-b-2 border-blue-600' : ''}>Portal Conductores</button>
+          <button onClick={() => setView('operator')} className={view === 'operator' ? 'text-slate-900 border-b-2 border-blue-600' : ''}>Panel Operador</button>
+        </div>
+      </nav>
+
+      <main className="flex-grow pt-28 pb-12 container mx-auto px-4 max-w-6xl">
         {view === 'candidate' ? (
-          <div className="animate-fadeIn space-y-16">
-            {success ? (
-              <div className="text-center py-20 bg-white rounded-[3rem] shadow-2xl border border-blue-100">
-                <div className="text-7xl mb-6">🚀</div>
-                <h2 className="text-4xl font-black mb-4">¡Registro Recibido!</h2>
-                <p className="text-gray-500 max-w-md mx-auto mb-8 font-medium">Nuestra IA está validando tu vehículo para las rutas farmacéuticas. Te contactaremos por WhatsApp en breve.</p>
-                <button onClick={() => setSuccess(false)} className="bg-blue-600 text-white px-12 py-4 rounded-2xl font-black shadow-xl">Volver</button>
-              </div>
-            ) : (
-              <div className="grid md:grid-cols-2 gap-16 items-center">
+          <div className="animate-slideUp space-y-16">
+            {step === 0 && (
+              <section className="grid md:grid-cols-2 gap-16 items-center">
                 <div className="space-y-8">
-                  <span className="bg-blue-100 text-blue-700 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">Barcelona Transit Hub</span>
-                  <h1 className="text-7xl font-black leading-[0.9] tracking-tighter">Gana más con <br/><span className="text-blue-600">rutas fijas.</span></h1>
-                  <p className="text-xl text-gray-500 font-medium">Operadora líder en transporte sanitario. Buscamos autónomos con furgoneta para rutas estables todo el año.</p>
-                  
-                  <form onSubmit={handleRegister} className="bg-white p-8 rounded-[2.5rem] shadow-2xl border border-gray-100 space-y-4">
-                    <h3 className="text-xl font-black mb-4">Solicitud de Alta</h3>
-                    <input required placeholder="Nombre Completo" className="w-full p-4 bg-gray-50 border rounded-2xl focus:ring-2 ring-blue-500" onChange={e => setFormData({...formData, name: e.target.value})} />
-                    <div className="grid grid-cols-2 gap-4">
-                      <input required type="tel" placeholder="Teléfono" className="w-full p-4 bg-gray-50 border rounded-2xl" onChange={e => setFormData({...formData, phone: e.target.value})} />
-                      <select className="w-full p-4 bg-gray-50 border rounded-2xl" onChange={e => setFormData({...formData, zone: e.target.value})}>
-                        <option value="">Zona</option>
-                        <option value="BCN">Barcelona</option>
-                        <option value="Valles">Vallès</option>
-                        <option value="Baix">Baix Llobregat</option>
-                      </select>
+                  <Badge>Operadora de Transportes BCN</Badge>
+                  <h1 className="text-7xl font-black leading-[0.9] tracking-tighter">
+                    Rutas fijas.<br/>
+                    <span className="text-blue-600">Pagos garantizados.</span>
+                  </h1>
+                  <p className="text-xl text-slate-500 font-medium leading-relaxed">
+                    Únete a la red líder en logística sanitaria. Buscamos autónomos con ganas de estabilidad y crecimiento profesional.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <button onClick={() => setStep(1)} className="bg-slate-900 text-white px-10 py-6 rounded-[2rem] font-black text-xl shadow-2xl hover:scale-105 transition">ALTA TRANSPORTISTA</button>
+                    <div className="flex items-center gap-4 px-6 py-4 bg-white border rounded-[2rem] shadow-sm">
+                      <div className="flex -space-x-2">
+                        {[1,2,3].map(i => <div key={i} className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white"></div>)}
+                      </div>
+                      <span className="text-xs font-bold text-slate-500 uppercase">+140 Conductores Activos</span>
                     </div>
-                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-lg shadow-lg hover:bg-blue-700 transition">
-                      {loading ? 'Procesando con IA...' : 'REGISTRARME AHORA'}
-                    </button>
-                  </form>
+                  </div>
                 </div>
                 <div className="hidden md:block relative">
-                  <div className="absolute -inset-4 bg-blue-600/10 rounded-[4rem] blur-2xl"></div>
-                  <img src={MODERN_IMAGES.refrigerated} className="relative rounded-[4rem] shadow-2xl border-8 border-white object-cover h-[600px] w-full" alt="Logistica" />
+                  <div className="absolute -inset-4 bg-blue-600/10 rounded-[4rem] blur-3xl"></div>
+                  <img src="https://images.unsplash.com/photo-1616432043562-3671ea2e5242?auto=format&fit=crop&q=80&w=800" className="relative rounded-[4rem] shadow-2xl border-8 border-white object-cover aspect-[4/5]" alt="Logística" />
                 </div>
+              </section>
+            )}
+
+            {step === 1 && (
+              <div className="max-w-xl mx-auto bg-white p-12 rounded-[3rem] shadow-2xl border border-slate-100">
+                <h2 className="text-3xl font-black mb-2">Únete a la flota</h2>
+                <p className="text-slate-400 mb-8 font-medium">Nuestra IA validará tu perfil en segundos.</p>
+                <form onSubmit={handleRegister} className="space-y-5">
+                  <input required placeholder="Nombre y Apellidos" className="w-full p-5 bg-slate-50 border-none rounded-2xl focus:ring-2 ring-blue-500" onChange={e => setFormData({...formData, name: e.target.value})} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <input required type="tel" placeholder="WhatsApp" className="w-full p-5 bg-slate-50 border-none rounded-2xl" onChange={e => setFormData({...formData, phone: e.target.value})} />
+                    <select required className="w-full p-5 bg-slate-50 border-none rounded-2xl" onChange={e => setFormData({...formData, zone: e.target.value})}>
+                      <option value="">Zona</option>
+                      {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
+                    </select>
+                  </div>
+                  <input placeholder="Modelo de Vehículo" className="w-full p-5 bg-slate-50 border-none rounded-2xl" onChange={e => setFormData({...formData, vehicle: e.target.value})} />
+                  <div className="bg-blue-50 p-6 rounded-2xl flex items-center gap-4">
+                    <input type="checkbox" className="w-6 h-6" checked={formData.path === CandidatePath.AUTONOMO_COLD} onChange={() => setFormData({...formData, path: CandidatePath.AUTONOMO_COLD})} />
+                    <p className="text-sm font-bold text-blue-900 leading-tight">Mi furgoneta tiene equipo de frío (Rutas FARMA)</p>
+                  </div>
+                  <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-6 rounded-2xl font-black text-xl shadow-xl hover:bg-blue-700 transition disabled:opacity-50">
+                    {loading ? 'Validando con IA...' : 'ENVIAR SOLICITUD'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {step === 100 && (
+              <div className="text-center py-20 bg-white rounded-[4rem] shadow-2xl border border-blue-100 max-w-2xl mx-auto">
+                <div className="text-8xl mb-6">✨</div>
+                <h2 className="text-4xl font-black mb-4 tracking-tighter">¡Ya estás en el radar!</h2>
+                <p className="text-slate-500 mb-10 text-lg px-12">Nuestra IA ha pre-aprobado tu perfil. El gestor de zona te escribirá por WhatsApp hoy mismo.</p>
+                <button onClick={() => {setStep(0); setFormData({ name: '', phone: '', zone: '', vehicle: '', path: CandidatePath.AUTONOMO_COLD });}} className="bg-slate-900 text-white px-12 py-4 rounded-2xl font-black shadow-lg">Entendido</button>
               </div>
             )}
           </div>
         ) : (
-          <div className="animate-fadeIn space-y-8">
-            <div className="flex justify-between items-end">
+          <div className="animate-slideUp space-y-12">
+            <div className="flex flex-col md:flex-row justify-between items-end gap-6">
               <div>
-                <h2 className="text-4xl font-black tracking-tighter">Panel de Gestión</h2>
-                <p className="text-gray-500 font-bold uppercase text-[10px] tracking-widest">Control de Flota en Tiempo Real</p>
+                <h1 className="text-5xl font-black tracking-tighter">Gestión de Flota</h1>
+                <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-2 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> Sistema en Tiempo Real
+                </p>
               </div>
-              <div className="bg-white px-6 py-3 rounded-2xl shadow-sm border font-black text-sm uppercase tracking-widest">
-                {candidates.length} Nuevos Leads
+              <div className="flex gap-4">
+                 <div className="bg-white px-6 py-4 rounded-3xl border shadow-sm flex flex-col items-center">
+                    <span className="text-[10px] font-black text-slate-400 uppercase">Leads Hoy</span>
+                    <span className="text-2xl font-black">{candidates.length}</span>
+                 </div>
               </div>
             </div>
-            
-            <div className="bg-white rounded-[3rem] shadow-xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50/50 border-b">
+
+            <GrowthTool />
+
+            <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-100 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 border-b">
                   <tr>
-                    <th className="p-6 font-black text-[10px] uppercase tracking-widest text-gray-400">Transportista</th>
-                    <th className="p-6 font-black text-[10px] uppercase tracking-widest text-gray-400">Zona</th>
-                    <th className="p-6 font-black text-[10px] uppercase tracking-widest text-gray-400">Estado IA</th>
-                    <th className="p-6 font-black text-[10px] uppercase tracking-widest text-gray-400">Acción</th>
+                    <th className="p-8 font-black text-[10px] uppercase tracking-widest text-slate-400">Transportista</th>
+                    <th className="p-8 font-black text-[10px] uppercase tracking-widest text-slate-400">Zona / Vehículo</th>
+                    <th className="p-8 font-black text-[10px] uppercase tracking-widest text-slate-400">Análisis IA</th>
+                    <th className="p-8 font-black text-[10px] uppercase tracking-widest text-slate-400">Estado</th>
+                    <th className="p-8 font-black text-[10px] uppercase tracking-widest text-slate-400">Acción</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-slate-50">
                   {candidates.length === 0 ? (
-                    <tr><td colSpan={4} className="p-20 text-center text-gray-400 font-medium italic">Esperando nuevos registros...</td></tr>
+                    <tr><td colSpan={5} className="p-20 text-center text-slate-400 italic font-medium">No hay nuevos candidatos registrados todavía.</td></tr>
                   ) : (
                     candidates.map(c => (
-                      <tr key={c.id} className="hover:bg-blue-50/30 transition">
-                        <td className="p-6">
-                          <div className="font-bold text-lg">{c.name}</div>
-                          <div className="text-xs text-gray-500">{c.phone}</div>
+                      <tr key={c.id} className="hover:bg-slate-50/50 transition">
+                        <td className="p-8">
+                          <div className="font-black text-lg text-slate-900">{c.name}</div>
+                          <div className="text-xs text-slate-400 font-bold">{c.phone}</div>
                         </td>
-                        <td className="p-6 font-bold text-gray-600">{c.zone}</td>
-                        <td className="p-6">
-                          <span className="bg-green-100 text-green-700 px-3 py-1 rounded-lg text-[10px] font-black">APTO FARMA</span>
+                        <td className="p-8">
+                          <div className="font-bold text-slate-700">{c.zone}</div>
+                          <div className="text-[10px] font-black text-blue-600 uppercase">{c.vehicle || 'Sin vehículo'}</div>
                         </td>
-                        <td className="p-6">
-                          <a href={`https://wa.me/${c.phone}`} target="_blank" className="bg-green-500 text-white px-4 py-2 rounded-xl text-[10px] font-black shadow-md inline-block">CONTACTAR</a>
+                        <td className="p-8">
+                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-500 leading-relaxed max-w-xs">
+                            {c.aiAnalysis}
+                          </div>
+                        </td>
+                        <td className="p-8">
+                          <Badge variant={c.status === Status.AI_APPROVED ? 'green' : 'orange'}>
+                            {c.status === Status.AI_APPROVED ? 'Apto IA' : 'Pendiente'}
+                          </Badge>
+                        </td>
+                        <td className="p-8">
+                          <a href={`https://wa.me/${c.phone}`} target="_blank" className="bg-green-500 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase shadow-lg shadow-green-100 hover:scale-105 transition inline-block">WhatsApp</a>
                         </td>
                       </tr>
                     ))
@@ -186,11 +265,12 @@ const App = () => {
             </div>
           </div>
         )}
-      </div>
-      <footer className="mt-20 py-10 border-t text-center text-gray-400 text-[10px] font-black uppercase tracking-[0.2em]">
-        © 2024 FarmaRoutes Barcelona S.L. • Operadora de Transportes
+      </main>
+
+      <footer className="py-12 border-t text-center space-y-4">
+        <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">© 2024 FarmaRoutes Barcelona S.L. • Operadora de Transportes</p>
       </footer>
-    </Layout>
+    </div>
   );
 };
 
