@@ -7,8 +7,6 @@ export default defineConfig({
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY || '')
   },
   build: {
-    outDir: 'dist',
-    sourcemap: false,
-    minify: 'esbuild'
+    outDir: 'dist'
   }
 });
